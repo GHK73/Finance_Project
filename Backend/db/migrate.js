@@ -41,6 +41,19 @@ async function runMigrations(){
             created_at TIMESTAMP DEFAULT NOW()
             );
             `);
+            await pool.query(`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint
+          WHERE conname = 'unique_trade_per_source'
+        ) THEN
+          ALTER TABLE trades
+          ADD CONSTRAINT unique_trade_per_source
+          UNIQUE (trade_id, source_id);
+        END IF;
+      END$$;
+    `);
             console.log("✅ Database tables created");
             process.exit(0);
     }catch(err){
