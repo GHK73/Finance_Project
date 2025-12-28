@@ -1,9 +1,7 @@
-// Backend/controllers/importTradesCsv.js
-
 import multer from "multer";
 import csv from "csv-parser";
 import { pipeline } from "stream/promises";
-import { pool } from "../db.js";
+import { importTradesCore } from "../services/tradeImportService.js";
 
 const upload = multer();
 
@@ -20,17 +18,6 @@ export const importTradesCsv = async (req, res) => {
       if (!source || !req.file) {
         return res.status(400).json({ message: "Source and CSV file are required" });
       }
-
-      const sourceResult = await pool.query(
-        "SELECT id FROM trade_sources WHERE name = $1 LIMIT 1",
-        [source]
-      );
-
-      if (sourceResult.rowCount === 0) {
-        return res.status(400).json({ message: "Invalid trade source" });
-      }
-
-      const source_id = sourceResult.rows[0].id;
 
       const trades = [];
 
@@ -57,50 +44,17 @@ export const importTradesCsv = async (req, res) => {
         }
       );
 
-      let inserted = 0;
-      let duplicates = 0;
+      const result = await importTradesCore(source, trades);
 
-      for (const t of trades) {
-
-        if (!t.trade_id || !t.symbol || !t.side || !t.quantity || !t.price || !t.trade_time) {
-          continue;
-        }
-
-        try {
-          await pool.query(
-            `
-            INSERT INTO trades
-            (trade_id, source_id, symbol, side, quantity, price, fee, trade_time)
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-            `,
-            [
-              t.trade_id,
-              source_id,
-              t.symbol,
-              t.side,
-              t.quantity,
-              t.price,
-              t.fee,
-              t.trade_time
-            ]
-          );
-
-          inserted++;
-
-        } catch (e) {
-          if (e.code === "23505") {
-            duplicates++;
-            continue;
-          }
-          throw e;
-        }
+      if (result.error) {
+        return res.status(400).json({ message: result.error });
       }
 
       return res.status(201).json({
         message: "CSV trade batch processed",
-        inserted,
-        duplicates,
-        total_received: trades.length
+        inserted: result.inserted,
+        duplicates: result.duplicates,
+        total_received: result.total_received
       });
 
     } catch (error) {
